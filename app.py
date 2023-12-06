@@ -8,10 +8,12 @@ from flask_security import UserMixin, RoleMixin
 from datetime import datetime
 import pytz
 from sqlalchemy import create_engine,inspect,column
+import math
+import random
+import requests
+import json
 
-
-
-
+cons ="ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789"
 app = Flask(__name__)
 
 app.config['SQLALCHEMY_DATABASE_URI'] = 'sqlite:///site.db'
@@ -98,6 +100,7 @@ with app.app_context():
 
 
 #テーブルを追加する。
+#今日の日付を取得し、それに基づくtableが発見されなかった場合に新しいテーブルを作る
 def add_table():
      with app.app_context():
         #時間
@@ -129,24 +132,25 @@ def add_table():
         print("テストモデルの追加に成功")
         db.session.commit()
 
-def add_data():
+#各書き込みの日付ごとに格納するtableを分ける
+def add_data(thread_title,num,name,mail,date,id,res,date_replaced):
      with app.app_context():
         japan_tz = pytz.timezone('Asia/Tokyo')
         today = datetime.now(japan_tz)
         month_date = today.strftime("%m%d")
         try:
-             dummy_class=list_class_day[month_date]
+             dummy_class=list_class_day[date_replaced]
         except:
              add_table()
-             dummy_class=list_class_day[month_date]
+             dummy_class=list_class_day[date_replaced]
         if dummy_class:
-            test_data={"thread_name":"tharead",
-                       "res_num":1423,
-                       "name":"abeshaainzo",
-                       "res_email":"test",
-                       "res_time":"aadd",
-                       "user_id":"jaifsoji6",
-                       "res_text":"bbaab"}
+            test_data={"thread_name":thread_title,
+                       "res_num":num,
+                       "name":name,
+                       "res_email":mail,
+                       "res_time":date,
+                       "user_id":id,
+                       "res_text":res}
             one_way_inst = dummy_class(**test_data)            
             db.session.add(one_way_inst)
             db.session.commit()
@@ -155,6 +159,37 @@ def add_data():
 def create_all_test():
      with app.app_context():
           db.create_all()
+
+
+def scrape_pov(thread_url):
+    site =requests.get(thread_url)
+    try:
+         text_from_json=json.loads(site.text)
+         for t in range(int(text_from_json["total_count"])):
+
+            num=text_from_json["comments"][t][0]#number
+            name=(text_from_json["comments"][t][1])#name
+            mail=(text_from_json["comments"][t][2])#メール
+            date=(text_from_json["comments"][t][3])#日時
+            date_replaced=date.replace("/","")[4:8]
+            id=(text_from_json["comments"][t][4])#id
+            res=(text_from_json["comments"][t][6])#レス
+            thread_title=(text_from_json["thread"][5])
+            print(f"{num}\n{name}\n{mail}\n{date}\n{date_replaced}\n{id}\n{res}\n{thread_title}")
+            add_data(thread_title,num,name,mail,date,id,res,date_replaced)
+    except Exception as e:
+            print(e)
+
+            print("miss")
+         
+     
+
+def snatch_url():
+    rand = [cons[math.floor(random.random()*59)] for _ in range(0,10)]
+    rand="".join(rand)
+    thread_url=f'https://itest.5ch.net/public/newapi/client.php?subdomain=greta&board=poverty&dat=1701802049&rand={rand}'
+    print(thread_url)
+    scrape_pov(thread_url)
 
 #スケジューラーの作成
 add_table_sche=BackgroundScheduler()
@@ -217,13 +252,20 @@ def add_data_to_table():
 
      return redirect(url_for('test_admin'))
 
-#取得する系統
-@app.route('/get_data')
-def get_data():
-    result=list_class_day["1125"].query.filter_by(thread_name='tharead').all()
+@app.route('/add_pov')
+def add_poverty():
+     snatch_url()
+     return "testsucces"
+
+
+#取得する系統read
+@app.route('/get_data/<date>/<name>')
+def get_data(date,name="安倍"):
+    result=db.session.query(list_class_day[date]).filter(list_class_day[date].name.like(f'%{name}%')).all()
     print(result[1])
     print(dir(result[1]))
     print(result[1].id)
+    print(result[0].res_text)
     return "ae"
 
 if __name__=='__main__':
